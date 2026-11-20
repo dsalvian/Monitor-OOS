@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoring Status Bahan Baku (OOS)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f8; margin: 0; padding: 16px; color: #333; }
+    .container { max-width: 960px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h2 { margin-top: 0; color: #1a202c; font-size: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .refresh-btn { font-size: 13px; padding: 8px 14px; background: #edf2f7; border: 1px solid #cbd5e0; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .refresh-btn:hover { background: #e2e8f0; }
+
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; overflow-x: auto; }
+    .tab-btn { padding: 10px 16px; border: none; background: #edf2f7; border-radius: 6px; cursor: pointer; font-weight: 600; color: #4a5568; white-space: nowrap; }
+    .tab-btn.active { background: #2b6cb0; color: #fff; }
+    
+    .filter-box { margin-bottom: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+    select { padding: 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 14px; flex: 1; min-width: 240px; background: #fff; }
+    
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+    th, td { padding: 11px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f7fafc; font-weight: 600; color: #2d3748; }
+    
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; }
+    .badge-oos { background: #fed7d7; color: #c53030; }
+    .badge-aktif { background: #c6f6d5; color: #2f855a; }
+    
+    .hidden { display: none; }
+    .loading { text-align: center; padding: 40px; color: #718096; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>
+    <span>📦 Monitoring Status Bahan Baku (OOS)</span>
+    <button class="refresh-btn" onclick="loadData()">🔄 Refresh Data</button>
+  </h2>
+  
+  <div id="loading" class="loading">Mengambil data terbaru dari Google Sheet...</div>
+
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('tab1', this)">1. Rekap Bahan OOS</button>
+      <button class="tab-btn" onclick="switchTab('tab2', this)">2. Cek per Bahan Baku</button>
+      <button class="tab-btn" onclick="switchTab('tab3', this)">3. Cek per Outlet</button>
+    </div>
+
+    <div id="tab1" class="tab-content">
+      <p style="font-size:13px; color:#718096; margin-top:0;">Daftar bahan baku yang saat ini berstatus <strong>OOS</strong> beserta jumlah outlet yang terdampak.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Bahan Baku</th>
+              <th>Jumlah Outlet OOS</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-rekap"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tab2" class="tab-content hidden">
+      <div class="filter-box">
+        <select id="select-bahan" onchange="renderTab2()">
+          <option value="">-- Pilih Bahan Baku (Sedang OOS) --</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Outlet</th>
+              <th>Waktu Request Close</th>
+              <th>Estimasi Buka</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-bahan"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tab3" class="tab-content hidden">
+      <div class="filter-box">
+        <select id="select-outlet" onchange="renderTab3()">
+          <option value="">-- Pilih Nama Outlet --</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Bahan Baku</th>
+              <th>Status Saat Ini</th>
+              <th>Waktu Close Terakhir</th>
+              <th>Estimasi / Aktual Buka</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-outlet"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // GANTI TULISAN DI DALAM TANDA KUTIP DI BAWAH INI DENGAN URL APPS SCRIPT ANDA
+  const API_URL = "https://script.google.com/macros/s/AKfycbw_d8z7b9VUaDpGYD_0sVVSCKEAGFeGHhoMRXHF4d2EyKOTAx_cB5X-W_dZV3yYwzFb/exec";
+
+  let appData = { records: [], masterOutlets: [], masterBahan: [] };
+
+  window.onload = loadData;
+
+  async function loadData() {
+    document.getElementById('loading').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
+    
+    try {
+      const response = await fetch(API_URL);
+      const data = await response.json();
+      appData = data;
+      
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      
+      renderTab1();
+      populateDropdowns();
+    } catch (err) {
+      document.getElementById('loading').innerHTML = `<span style="color:red;">Gagal memuat data. Pastikan API_URL sudah benar dan akses Apps Script diatur ke 'Anyone'.</span>`;
+    }
+  }
+
+  function switchTab(tabId, btn) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById(tabId).classList.remove('hidden');
+    btn.classList.add('active');
+  }
+
+  function getLatestMap() {
+    const map = {};
+    appData.records.forEach(item => {
+      const key = `${item.outlet}|||${item.bahan}`;
+      map[key] = item;
+    });
+    return map;
+  }
+
+  function renderTab1() {
+    const latestRecords = Object.values(getLatestMap());
+    const oosOnly = latestRecords.filter(d => d.status === 'OOS');
+    const summary = {};
+
+    oosOnly.forEach(item => {
+      if (!summary[item.bahan]) summary[item.bahan] = new Set();
+      summary[item.bahan].add(item.outlet);
+    });
+
+    const tbody = document.getElementById('tbody-rekap');
+    tbody.innerHTML = '';
+
+    const bahanList = Object.keys(summary).sort((a, b) => summary[b].size - summary[a].size);
+    
+    if (bahanList.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#2f855a; font-weight:600;">Semua bahan baku berstatus AKTIF (Tidak ada yang OOS saat ini).</td></tr>';
+      return;
+    }
+
+    bahanList.forEach(bahan => {
+      tbody.innerHTML += `<tr>
+        <td><strong>${bahan}</strong></td>
+        <td><span class="badge badge-oos">${summary[bahan].size} Outlet</span></td>
+      </tr>`;
+    });
+  }
+
+  function populateDropdowns() {
+    const latestRecords = Object.values(getLatestMap());
+    const oosBahan = [...new Set(latestRecords.filter(d => d.status === 'OOS').map(d => d.bahan))].sort();
+    
+    const selectBahan = document.getElementById('select-bahan');
+    selectBahan.innerHTML = '<option value="">-- Pilih Bahan Baku (Sedang OOS) --</option>';
+    oosBahan.forEach(b => {
+      selectBahan.innerHTML += `<option value="${b}">${b}</option>`;
+    });
+
+    const selectOutlet = document.getElementById('select-outlet');
+    selectOutlet.innerHTML = '<option value="">-- Pilih Nama Outlet --</option>';
+    appData.masterOutlets.forEach(o => {
+      selectOutlet.innerHTML += `<option value="${o}">${o}</option>`;
+    });
+  }
+
+  function renderTab2() {
+    const selectedBahan = document.getElementById('select-bahan').value;
+    const tbody = document.getElementById('tbody-bahan');
+    tbody.innerHTML = '';
+
+    if (!selectedBahan) return;
+
+    const latestRecords = Object.values(getLatestMap());
+    const filtered = latestRecords.filter(d => d.bahan === selectedBahan && d.status === 'OOS');
+    
+    filtered.forEach(item => {
+      tbody.innerHTML += `<tr>
+        <td><strong>${item.outlet}</strong></td>
+        <td>${item.waktuClose || '-'}</td>
+        <td>${item.estimasiBuka || '-'}</td>
+        <td><span class="badge badge-oos">OOS</span></td>
+      </tr>`;
+    });
+  }
+
+  function renderTab3() {
+    const selectedOutlet = document.getElementById('select-outlet').value;
+    const tbody = document.getElementById('tbody-outlet');
+    tbody.innerHTML = '';
+
+    if (!selectedOutlet) return;
+
+    const latestMap = getLatestMap();
+    const list = appData.masterBahan.map(bahan => {
+      const record = latestMap[`${selectedOutlet}|||${bahan}`];
+      if (record) return record;
+      return {
+        bahan: bahan,
+        status: 'AKTIF',
+        waktuClose: '-',
+        estimasiBuka: '-',
+        aktualBuka: '-'
+      };
+    });
+
+    list.sort((a, b) => (a.status === b.status) ? a.bahan.localeCompare(b.bahan) : (a.status === 'OOS' ? -1 : 1));
+
+    list.forEach(item => {
+      const isOOS = item.status === 'OOS';
+      const badgeClass = isOOS ? 'badge-oos' : 'badge-aktif';
+      const infoBuka = isOOS ? (item.estimasiBuka ? `Est: ${item.estimasiBuka}` : '-') : (item.aktualBuka || '-');
+
+      tbody.innerHTML += `<tr>
+        <td><strong>${item.bahan}</strong></td>
+        <td><span class="badge ${badgeClass}">${item.status}</span></td>
+        <td>${item.waktuClose || '-'}</td>
+        <td>${infoBuka}</td>
+      </tr>`;
+    });
+  }
+</script>
+
+</body>
+</html>
